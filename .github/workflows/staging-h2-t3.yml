@@ -1,0 +1,56 @@
+name: SCION Staging H2 T3 validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Exact Staging candidate commit SHA to validate"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-go-t3:
+    name: Gateway Go validation (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact submitted Staging candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_sha }}
+          persist-credentials: false
+
+      - name: Verify exact candidate SHA
+        env:
+          EXPECTED_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA"
+          echo "Staging HEAD: $actual"
+          echo "Runner: $(uname -a)"
+
+      - name: Set up Go from upstream go.mod
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go format check of staging files
+        run: |
+          test -z "$(gofmt -l gateway/dataplane/session.go gateway/dataplane/quintuple_test.go)"
+
+      - name: Hash and routing regression
+        run: go test ./gateway/dataplane -run '^TestHashQuintuple$' -count=3
+
+      - name: Full Gateway Go tests
+        run: go test ./gateway/... -count=1
+
+      - name: Dataplane race detector
+        run: go test -race ./gateway/dataplane -count=1
+
+      - name: Gateway Go static checks
+        run: go vet ./gateway/...
