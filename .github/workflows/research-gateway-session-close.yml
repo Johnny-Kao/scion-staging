@@ -1,0 +1,51 @@
+name: Research - SCION Gateway session close Linux race
+
+on:
+  push:
+    branches:
+      - research/gateway-session-terminal-close
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-race:
+    name: Linux amd64 race / lifecycle validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pinned source and candidate patch
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check exact source parent
+        run: |
+          test "$(git rev-parse HEAD~2)" = "c7fe6e4dd1b14848892b2e916eb6ac387945bb08"
+      - name: Baseline expected RED (unmodified upstream + new regression test)
+        shell: bash
+        run: |
+          git show HEAD~2:gateway/dataplane/session.go > gateway/dataplane/session.go
+          set +e
+          go test -race ./gateway/dataplane -run '^TestSessionCloseTerminal$' -count=1 -timeout=90s > /tmp/baseline.out 2>&1
+          status=$?
+          set -e
+          sed -n '1,35p' /tmp/baseline.out
+          if [ "$status" -eq 0 ]; then
+            echo "ERROR: unmodified baseline unexpectedly passed regression"
+            exit 1
+          fi
+          if ! grep -q 'TestSessionCloseTerminal' /tmp/baseline.out; then
+            echo "ERROR: baseline failed for unrelated reason"
+            exit 1
+          fi
+          git restore gateway/dataplane/session.go
+      - name: Candidate GREEN (10 repeats with race detector)
+        run: go test -race ./gateway/dataplane -run '^TestSessionClose' -count=10 -timeout=120s
+      - name: Gateway control and dataplane race suites
+        run: go test -race ./gateway/control ./gateway/dataplane -count=1 -timeout=180s
+      - name: Vet
+        run: go vet ./gateway/control ./gateway/dataplane
