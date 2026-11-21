@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout pinned source and candidate patch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -24,11 +26,11 @@ jobs:
           cache: false
       - name: Check exact source parent
         run: |
-          test "$(git rev-parse HEAD~2)" = "c7fe6e4dd1b14848892b2e916eb6ac387945bb08"
+          git merge-base --is-ancestor c7fe6e4dd1b14848892b2e916eb6ac387945bb08 HEAD
       - name: Baseline expected RED (unmodified upstream + new regression test)
         shell: bash
         run: |
-          git show HEAD~2:gateway/dataplane/session.go > gateway/dataplane/session.go
+          git show c7fe6e4dd1b14848892b2e916eb6ac387945bb08:gateway/dataplane/session.go > gateway/dataplane/session.go
           set +e
           go test -race ./gateway/dataplane -run '^TestSessionCloseTerminal$' -count=1 -timeout=90s > /tmp/baseline.out 2>&1
           status=$?
